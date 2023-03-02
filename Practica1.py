@@ -5,15 +5,15 @@ Jose Ignacio Alba Rodriguez
 """
 
 
-# Posibles cambios: Consumidor().storage a Array
-
 from multiprocessing import Process, BoundedSemaphore, Semaphore, Lock, Value, Array, Manager
 from random import randint
 import time
 
 # Por comodidad en las llamadas a las funciones, recogo todos los datos asociados a cada productor y consumidor en clases
-# He implementado los buffer de los productores como Arrays circulares, por ello, debemos de guardar los datos de la posicion del valor inicial y final
+# He implementado los buffer de los productores como Arrays circulares, por ello, se deben guardar los datos de la posicion del valor inicial y final
 # Estos ultimos son de la clase Value pues deben ser compartidos y modificados con el consumidor, mientras que cap puede ser entero de Python ya que es constante
+# Tambien, el codigo admite que cada productor tenga una capacidad y numero de producciones distintos
+
 class Productor():
     def __init__(self ,cap, indice):
         self.cap = cap
@@ -26,7 +26,8 @@ class Productor():
         self.non_empty = Semaphore(0)
         self.empty = BoundedSemaphore(cap)
         self.lock = Lock()
-    
+
+    # La funcion __repr__ devolvera un string con el identificador del productor y su almacen, sustituyendo los -2 por _
     def __repr__(self):
         s = f"Productor {self.indice}: ["
         for i in range(self.cap):
@@ -36,7 +37,8 @@ class Productor():
             else: s+= f" {a} "
             if(i< self.cap -1): s+= ","
         return s+"]"
-    
+
+    # La funcion almacenar espera para entrar en la seccion critica y añade un elemento al almacen, desplazando el valor final
     def almacenar(self, dato):
         self.lock.acquire()
         print(f"El Productor {self.indice} entra a su seccion critica", flush = True)
@@ -46,8 +48,9 @@ class Productor():
         finally:
             self.lock.release()
             print(f"El Productor {self.indice} sale de su seccion critica", flush = True)
-    
-    # Aunque quitar sea un metodo de la clase productor, sera llamado desde el proceso consumidor, por lo que necesitamos los Locks
+
+    # La funcion quitar sustituye el primer elemento por -2 y reduce el valor inicial
+    # Aunque quitar sea un metodo de la clase Productor, sera llamado desde el proceso consumidor, por lo que necesitamos los Locks para asegurar que no se almacena y se quita al mismo tiempo
     def quitar(self):
         print(f"El Consumidor entra en la seccion critica del Producto {self.indice}", flush = True)
         self.lock.acquire()
@@ -70,8 +73,7 @@ class Consumidor():
     def __repr__(self):
         return str(self.storage)
 
-
-
+# Cada proceso Productor añade a su almacen elementos aleatorios de forma creciente siempre que tenga capacidad suficiente, y si no, espera
 def producir(prod, N):
     producto = 0
     for v in list(range(N)) + [-1]:
@@ -83,7 +85,8 @@ def producir(prod, N):
         print(f"El productor {prod.indice} ha producido:\n{prod}\n", flush = True)
     print(f"El productor {prod.indice} ha terminado", flush = True)
 
-
+# La funcion minimo decuelve una tupla con el segundo elemento correspondiente al producto menor y el primer elemento correspondiente al indice del productor del que viene dicho elemento
+# Si todos los procesos han acabado (todos tienen -1) entonces devuelve -1
 def minimo(productos):
     l = list(filter(lambda x: x[1]>=0 , productos))
     if l == [] : return -1
@@ -92,7 +95,7 @@ def minimo(productos):
         if(a[1] < m[1]): m = a
     return m
 
-
+# Calcula el minimo y lo consume. Para cuando minimo devuelve -1, es decir, cuando consume todos los elementos producidos de cada productor
 def consumir(c):
     alguien_no_terminado = True,
     while alguien_no_terminado:
@@ -104,7 +107,7 @@ def consumir(c):
         mini = minimo(productos)
         if (mini ==-1) :
             alguien_no_terminado = False
-            for p in c.prods:    # Para que "liberen" el -1 y asi todos los procesos terminen para el join()
+            for p in c.prods:    # Para que "liberen" el -1 y asi todos los procesos terminen y puedan acceder al join()
                 p.empty.release()
         else:
             c.prods[ mini[0] ].non_empty.acquire()
@@ -113,12 +116,9 @@ def consumir(c):
             c.prods[mini[0]].empty.release()
             c.storage.append(mini)
             print(f"Estado Actual del Consumidor: {c}")
-    print(f"Los productos consumidos por c en orden de consumicion: {c.storage}", flush = True)
-
 
 
 def main():
-
     prods = [Productor(cap[i], i) for i in range(n_prods)]
     c = Consumidor(n_prods, prods, l)
     procesos = []
@@ -132,23 +132,19 @@ def main():
 
     for p in (procesos + [proc_c]):
         p.join()
-        
-    #print(c.storage) c.storage no ha cambiado por que era una copia y la memoria no era compartida!!! Para que sea memo compartida: c.storage = Array('i', sum(N))
     for p in c.prods: print(p)
 
 
 if __name__ == '__main__':
-    n_prods = 5 #Numero de productores
-    cap = [2 for _ in range(n_prods)] #Capacidad de cada productor (no todos tienen por que tener la misma)
-    N = [3  for _ in range(n_prods)] # Numero de productos que produce cada productor (no todos tienen por que producir los mismos elementos)
-    
-    """ No tienen por que tener todos los productores la misma capacidad ni el mismo numero de producciones"""    
-    cap = [5,6,2,8,10]
-    N = [8,7,3,9,15]
+    # No es necesario que todos los productores tengan la misma capacidad o numero de producciones
+
+    n_prods = 5         # Numero de productores    
+    cap = [5,6,2,8,10]  # Capacidad de cada productor
+    N = [8,7,3,9,15]    # Numero de producciones que realiza cada productor
     m = Manager()
-    l = m.list()
+    l = m.list()        # Lista compartida del Consumidor
 
     main()
-    time.sleep(1000)
-        
-        
+
+    # El primer indice indica el Productor del que proviene cada producto, y el segundo es el propio producto
+    print(f"El resultado de la lista del consumidor: {l}")
